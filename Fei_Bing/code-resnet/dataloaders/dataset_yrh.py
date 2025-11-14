@@ -500,20 +500,7 @@ class BaseDataSets_Fei_Tou(Dataset):
 
 #############################肺透明膜病5分类，数据集读取，5折交叉验证################################################    
 class BaseDataSets_Fei_Tou_kfold(Dataset):
-    """
-    Fei_Tou（肺透）任务的 K-fold 数据集类
-    与 Xi_Ru（吸入）版本完全一致的 k折结构
-    """
-
-    def __init__(self, base_dir=None, split="train", fold=0, num=None,
-                 transform=None, ops_weak=None, ops_strong=None):
-        """
-        Args:
-            base_dir: 存放 txt 的根目录，例如
-                      /mnt/sdd/wjh/Fei_Bing/code_and_txt_data_process_Fei_Tou
-            split: "train", "val", "test"
-            fold: 当前折编号（0~4）
-        """
+    def __init__(self, base_dir=None, split="train", fold=0, num=None, transform=None, ops_weak=None, ops_strong=None):
         self._base_dir = base_dir
         self.fold = fold
         self.split = split
@@ -522,22 +509,22 @@ class BaseDataSets_Fei_Tou_kfold(Dataset):
         self.ops_strong = ops_strong
 
         assert bool(ops_weak) == bool(ops_strong), \
-            "For CTAugment, both ops_weak and ops_strong must be provided together"
+            "For using CTAugment learned policies, provide both weak and strong batch augmentation policy"
 
-        # === 1️⃣ 加载 k-fold 对应的 txt 文件 ===
+        # === 加载该 fold 的 txt 文件 ===
         txt_path = os.path.join(
-            self._base_dir, "kfold_splits",
+            self._base_dir,
+            "kfold_splits",
             f"{self.split}_fold{self.fold}.txt"
         )
         if not os.path.exists(txt_path):
-            raise FileNotFoundError(f"找不到文件: {txt_path}")
+            raise FileNotFoundError(f"Cannot find txt: {txt_path}")
 
         with open(txt_path, "r") as f:
             self.sample_list = [line.strip() for line in f.readlines()]
 
-        print(f"[Fei_Tou Fold {self.fold}] Loaded {self.split} samples: {len(self.sample_list)}")
+        print(f"[Fold {self.fold}] Loaded {self.split} samples: {len(self.sample_list)}")
 
-        # === 2️⃣ 真实图像根目录 ===
         self.img_root = "/mnt/sdd/wjh/Fei_Bing/dataset_able"
 
     def __len__(self):
@@ -545,46 +532,42 @@ class BaseDataSets_Fei_Tou_kfold(Dataset):
 
     def __getitem__(self, idx):
         case = self.sample_list[idx]
+
         split_data = case.split()
-
         filename = split_data[0]
-        label = int(split_data[1])   # 0–4 五类
+        int_data = int(split_data[1])  # 0~4 共五类
 
-        # === 3️⃣ 根据 label 加载图像（保持你原来的逻辑） ===
-        if label == 0:
-            path = f"{self.img_root}/Normal_able/{filename}"
-        elif label == 1:
-            path = f"{self.img_root}/Fei_Tou_1/{filename}"
-        elif label == 2:
-            path = f"{self.img_root}/Fei_Tou_2/{filename}"
-        elif label == 3:
-            path = f"{self.img_root}/Fei_Tou_3/{filename}"
-        elif label == 4:
-            path = f"{self.img_root}/Fei_Tou_4/{filename}"
+        # 读取图像
+        if int_data == 0:
+            _image = Image.open(f"{self.img_root}/Normal_able/{filename}")
+        elif int_data == 1:
+            _image = Image.open(f"{self.img_root}/Fei_Tou_1/{filename}")
+        elif int_data == 2:
+            _image = Image.open(f"{self.img_root}/Fei_Tou_2/{filename}")
+        elif int_data == 3:
+            _image = Image.open(f"{self.img_root}/Fei_Tou_3/{filename}")
+        elif int_data == 4:
+            _image = Image.open(f"{self.img_root}/Fei_Tou_4/{filename}")
         else:
-            raise ValueError(f"未知 label: {label}")
+            raise ValueError("Unknown class index")
 
-        _image = Image.open(path)
+        img_gray = _image.convert("L")
+        image = np.array(img_gray, dtype=np.float32)
+        label = int_data
 
-        # 转灰度图
-        gray_image = _image.convert("L")
-        image = np.array(gray_image, dtype=np.float32)
-        image = image / 255.0  # 建议保留
-
-        # sample 格式保持一致
         sample = {"image": image, "label": label}
 
-        # === 4️⃣ transform & CTAugment 支持 ===
+        # 训练增强
         if self.transform is not None:
             if self.split == "train" and None not in (self.ops_weak, self.ops_strong):
                 sample = self.transform(sample, self.ops_weak, self.ops_strong)
             else:
                 sample = self.transform(sample)
 
-        # === 5️⃣ 额外信息 ===
         sample["idx"] = idx
-
+        sample["label"] = label
         return sample
+
 
 #############################肺透明膜病5分类，数据集读取,增加文本信息################################################
 class BaseDataSets_Fei_Tou_txt(Dataset):
